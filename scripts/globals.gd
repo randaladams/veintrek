@@ -17,63 +17,66 @@ var level_best: Dictionary = {}
 ## Baseline tuning values. Levels and endless mode override some of them.
 const DEFAULT_DIFF := {
 	"speed": 20.0,          # forward speed, m/s
-	"r_min": 5.5,           # vessel radius range, m
-	"r_max": 7.5,
-	"narrow": 0.3,          # chance per segment of a constriction
-	"narrow_depth": 0.55,   # radius multiplier at the tightest point
-	"fork": 0.35,           # chance a segment ends in a branch
-	"red": 4.0,             # red cells per 100 m
+	"r_min": 10.0,          # vessel radius range, m
+	"r_max": 12.5,
+	"narrow": 0.25,         # chance per segment of a constriction
+	"narrow_depth": 0.6,    # radius multiplier at the tightest point
+	"turns": 0.3,           # sharp turns per 100 m
+	"turn_deg_min": 50.0,   # how far each sharp turn bends
+	"turn_deg_max": 80.0,
+	"sharp": 0.04,          # peak curvature in a sharp turn, rad per metre
+	"red": 5.0,             # red cells per 100 m
 	"shooter": 0.15,        # fraction of red cells that shoot
 	"fire_interval": 2.6,   # seconds between shots from a shooter
 	"white": 0.5,           # white cells per 100 m
-	"powerup": 230.0,       # metres between power-ups
-	"seg_min": 140.0,
-	"seg_max": 230.0,
-	"turn": 0.016,          # max curvature, rad per metre
+	"powerup": 250.0,       # metres between power-ups
+	"seg_min": 150.0,
+	"seg_max": 240.0,
+	"turn": 0.008,          # max curvature of the gentle wander, rad per metre
 }
 
 const LEVELS: Array = [
 	{
 		"name": "Insertion", "place": "Femoral Artery",
-		"brief": "Clear the entry point. Learn to steer and keep the glass intact.",
-		"length": 1200.0, "speed": 19.0, "r_min": 6.5, "r_max": 8.0,
-		"narrow": 0.2, "narrow_depth": 0.65, "fork": 0.25,
-		"red": 4.0, "shooter": 0.0, "white": 0.0, "powerup": 200.0, "turn": 0.012,
+		"brief": "Learn to steer. Lean into the turns when the arrows flash.",
+		"length": 1200.0, "speed": 18.0, "r_min": 12.0, "r_max": 14.0,
+		"narrow": 0.15, "narrow_depth": 0.7, "turns": 0.22, "turn_deg_max": 65.0, "sharp": 0.032,
+		"red": 5.0, "shooter": 0.0, "white": 0.0, "powerup": 220.0,
 	},
 	{
 		"name": "Upstream", "place": "Iliac Artery",
 		"brief": "Infected red cells are firing back. Shoot the dark ones first.",
-		"length": 1600.0, "speed": 21.0, "r_min": 6.0, "r_max": 7.5,
-		"narrow": 0.3, "narrow_depth": 0.6, "fork": 0.3,
-		"red": 5.0, "shooter": 0.22, "white": 0.3, "powerup": 220.0,
+		"length": 1600.0, "speed": 20.0, "r_min": 11.0, "r_max": 13.0,
+		"narrow": 0.25, "narrow_depth": 0.65, "turns": 0.28,
+		"red": 6.0, "shooter": 0.22, "white": 0.3, "powerup": 240.0,
 	},
 	{
-		"name": "Crossroads", "place": "Abdominal Aorta",
-		"brief": "The vessel branches constantly. Pick your route and commit.",
-		"length": 2000.0, "speed": 22.0, "r_min": 5.5, "r_max": 7.5,
-		"narrow": 0.3, "narrow_depth": 0.55, "fork": 0.7,
-		"red": 5.0, "shooter": 0.25, "white": 0.8, "powerup": 230.0,
+		"name": "Hairpins", "place": "Abdominal Aorta",
+		"brief": "The aorta twists hard. Watch for turn warnings and lean early.",
+		"length": 2000.0, "speed": 21.0, "r_min": 10.5, "r_max": 12.5,
+		"narrow": 0.25, "narrow_depth": 0.6, "turns": 0.5, "turn_deg_min": 60.0, "turn_deg_max": 95.0, "sharp": 0.045,
+		"red": 6.0, "shooter": 0.22, "white": 0.6, "powerup": 250.0,
 	},
 	{
 		"name": "Capillary Run", "place": "Renal Capillaries",
 		"brief": "Tight squeezes ahead. Stay centred or scrape the walls.",
-		"length": 2000.0, "speed": 20.0, "r_min": 3.6, "r_max": 5.0,
-		"narrow": 0.6, "narrow_depth": 0.5, "fork": 0.5,
-		"red": 6.0, "shooter": 0.25, "white": 0.8, "powerup": 210.0, "turn": 0.02,
+		"length": 2000.0, "speed": 19.0, "r_min": 7.5, "r_max": 9.0,
+		"narrow": 0.55, "narrow_depth": 0.6, "turns": 0.3, "sharp": 0.04,
+		"red": 6.0, "shooter": 0.22, "white": 0.6, "powerup": 230.0,
 	},
 	{
 		"name": "Immune Response", "place": "Splenic Vessels",
-		"brief": "White cells swarm here. Shake the phone or tap them off the glass.",
-		"length": 2200.0, "speed": 23.0, "r_min": 5.0, "r_max": 7.0,
-		"narrow": 0.4, "narrow_depth": 0.5, "fork": 0.4,
-		"red": 5.0, "shooter": 0.3, "white": 3.0, "powerup": 210.0,
+		"brief": "White cells swarm here. Touch the left side to shock them off the glass.",
+		"length": 2200.0, "speed": 22.0, "r_min": 10.0, "r_max": 12.0,
+		"narrow": 0.35, "narrow_depth": 0.6, "turns": 0.3,
+		"red": 6.0, "shooter": 0.3, "white": 1.5, "powerup": 230.0,
 	},
 	{
 		"name": "The Heart", "place": "Coronary Artery",
 		"brief": "Everything the body has left. Reach the heart.",
-		"length": 2600.0, "speed": 26.0, "r_min": 4.5, "r_max": 7.0,
-		"narrow": 0.55, "narrow_depth": 0.45, "fork": 0.5,
-		"red": 8.0, "shooter": 0.45, "fire_interval": 2.0, "white": 2.0, "powerup": 240.0, "turn": 0.02,
+		"length": 2600.0, "speed": 24.0, "r_min": 8.5, "r_max": 11.5,
+		"narrow": 0.45, "narrow_depth": 0.55, "turns": 0.45, "turn_deg_max": 95.0, "sharp": 0.048,
+		"red": 8.0, "shooter": 0.3, "fire_interval": 2.4, "white": 1.1, "powerup": 250.0,
 	},
 ]
 
@@ -94,25 +97,26 @@ func endless_diff(dist: float) -> Dictionary:
 	var t := clampf(dist / 9000.0, 0.0, 1.0)
 	var d := DEFAULT_DIFF.duplicate()
 	d.merge({
-		"speed": lerpf(20.0, 34.0, t),
-		"r_min": lerpf(5.5, 3.6, t),
-		"r_max": lerpf(7.5, 6.5, t),
-		"narrow": lerpf(0.25, 0.7, t),
-		"narrow_depth": lerpf(0.62, 0.42, t),
-		"fork": 0.4,
-		"red": lerpf(3.5, 9.0, t),
-		"shooter": lerpf(0.08, 0.5, t),
-		"fire_interval": lerpf(3.0, 1.6, t),
-		"white": lerpf(0.3, 3.0, t),
-		"powerup": lerpf(220.0, 300.0, t),
-		"turn": lerpf(0.014, 0.022, t),
+		"speed": lerpf(19.0, 30.0, t),
+		"r_min": lerpf(11.0, 7.5, t),
+		"r_max": lerpf(13.0, 10.0, t),
+		"narrow": lerpf(0.2, 0.6, t),
+		"narrow_depth": lerpf(0.68, 0.55, t),
+		"turns": lerpf(0.22, 0.55, t),
+		"turn_deg_max": lerpf(70.0, 100.0, t),
+		"sharp": lerpf(0.032, 0.05, t),
+		"red": lerpf(4.5, 10.0, t),
+		"shooter": lerpf(0.08, 0.35, t),
+		"fire_interval": lerpf(3.0, 2.0, t),
+		"white": lerpf(0.3, 1.5, t),
+		"powerup": lerpf(240.0, 300.0, t),
 	}, true)
 	return d
 
 
 func demo_diff() -> Dictionary:
 	var d := DEFAULT_DIFF.duplicate()
-	d.merge({"speed": 13.0, "red": 4.0, "shooter": 0.0, "white": 0.0, "fork": 0.4, "narrow": 0.3}, true)
+	d.merge({"speed": 13.0, "red": 5.0, "shooter": 0.0, "white": 0.0, "turns": 0.3}, true)
 	return d
 
 
@@ -168,6 +172,7 @@ func _setup_input() -> void:
 		"steer_up": [KEY_UP, KEY_W],
 		"steer_down": [KEY_DOWN, KEY_S],
 		"fire": [KEY_SPACE, KEY_J],
+		"shock": [KEY_E, KEY_K],
 		"pause": [KEY_ESCAPE, KEY_P],
 	}
 	for action in map.keys():

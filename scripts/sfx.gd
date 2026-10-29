@@ -86,6 +86,8 @@ func _build() -> void:
 	_streams["alarm"] = _wav(_alarm())
 	_streams["blip"] = _wav(_arp([880.0, 1320.0], 0.07, 0.2))
 	_streams["go"] = _wav(_arp([660.0, 990.0], 0.1, 0.3, true))
+	_streams["zap"] = _wav(_zap())
+	_streams["warn"] = _wav(_warn())
 	_streams["heart"] = _wav(_heartbeat(), true)
 	_streams["hum"] = _wav(_hum_loop(), true)
 
@@ -219,6 +221,31 @@ func _alarm() -> PackedFloat32Array:
 		var t := float(i) / RATE
 		var on := 1.0 if fmod(t, 0.15) < 0.1 else 0.0
 		b[i] = signf(sin(TAU * 880.0 * t)) * on * 0.18
+	return b
+
+
+func _zap() -> PackedFloat32Array:
+	var b := _buf(0.6)
+	var ph := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		ph += (120.0 + 80.0 * sin(t * 50.0)) / RATE
+		var buzz := signf(sin(ph * TAU)) * 0.5
+		var crackle := _rng.randf_range(-1, 1) * (1.0 if _rng.randf() < 0.3 else 0.2)
+		var sweep := sin(TAU * (2400.0 * exp(-t * 6.0) + 200.0) * t) * 0.35
+		b[i] = (buzz * 0.5 + crackle * 0.5 + sweep) * exp(-t * 4.5) * 0.7
+	return b
+
+
+func _warn() -> PackedFloat32Array:
+	# Two quick rising chirps, like a proximity alert.
+	var b := _buf(0.42)
+	for i in b.size():
+		var t := float(i) / RATE
+		var k := fmod(t, 0.21)
+		var on := 1.0 if k < 0.15 else 0.0
+		var f := 700.0 + k * 3000.0
+		b[i] = (sin(TAU * f * t) * 0.6 + signf(sin(TAU * f * t)) * 0.15) * on * 0.4 * (1.0 - k / 0.21)
 	return b
 
 

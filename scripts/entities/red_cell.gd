@@ -62,7 +62,7 @@ func _process(delta: float) -> void:
 	if shooter and game.is_playing():
 		var to_cell: Vector3 = global_position - game.player_pos
 		var dist := to_cell.length()
-		if dist < 95.0 and dist > 10.0 and to_cell.dot(game.forward) > dist * 0.5:
+		if dist < 80.0 and dist > 10.0 and to_cell.dot(game.forward) > dist * 0.5:
 			_fire_timer -= delta
 			if _fire_timer <= 0.0:
 				_fire_timer = _fire_interval * randf_range(0.75, 1.3)

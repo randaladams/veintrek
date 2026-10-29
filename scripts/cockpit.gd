@@ -22,12 +22,18 @@ var speed := 0.0
 var remaining := -1.0
 var beat := 0.0
 var countdown := -1.0
-var fork_points: Array[Vector2] = []
+var shock_charges := 3
+var turn_dir := Vector2.ZERO    # (right, up) of the upcoming sharp turn, zero if none
+var turn_dist := 0.0            # metres until it starts; <= 0 while inside it
+var turn_deg := 0.0
 var steer := Vector2.ZERO
 var tilt_ok := true
 
 var _cracks: Array = []   # {lines: Array[PackedVector2Array] (normalised), o: Vector2, r: float}
-var _blobs: Array = []    # {p, r, taps, ph, jig, fall, vy, a}
+var _blobs: Array = []    # {p, r, life, ph, jig, fall, vy, a, zap}
+var _shock := 0.0         # 1 -> 0 while the windshield shock effect plays
+var _arcs: Array = []     # lightning bolts across the glass, normalised coords
+var _zone_hint := 0.0     # fades out the SHOCK / FIRE zone labels after a run starts
 var _flash := 0.0
 var _white := 0.0
 var _msg := ""
@@ -54,7 +60,10 @@ func reset() -> void:
 	_msg = ""
 	_msg_t = 0.0
 	countdown = -1.0
-	fork_points.clear()
+	_shock = 0.0
+	_arcs.clear()
+	_zone_hint = 9.0
+	turn_dir = Vector2.ZERO
 
 
 func _process(delta: float) -> void:
@@ -62,8 +71,20 @@ func _process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 2.2)
 	_white = maxf(0.0, _white - delta * 0.9)
 	_msg_t -= delta
+	_zone_hint = maxf(0.0, _zone_hint - delta)
+	if _shock > 0.0:
+		_shock = maxf(0.0, _shock - delta * 1.6)
+		if randf() < 0.5:
+			_make_arcs()
 	for b in _blobs:
 		b.jig = maxf(0.0, b.jig - delta * 3.0)
+		b.zap = maxf(0.0, b.zap - delta * 2.0)
+		if not b.fall:
+			# A white cell eventually loses its grip and slides off on its own.
+			b.life -= delta
+			if b.life <= 0.0:
+				b.fall = true
+				b.vy = 0.05
 		if b.fall:
 			b.vy += delta * 2.2
 			var p: Vector2 = b.p
@@ -152,8 +173,8 @@ func shatter() -> void:
 
 func add_blob(screen_pos: Vector2) -> void:
 	var p := Vector2(clampf(screen_pos.x / maxf(size.x, 1.0), 0.12, 0.88), clampf(screen_pos.y / maxf(size.y, 1.0), 0.14, 0.66))
-	_blobs.append({"p": p, "r": randf_range(0.085, 0.12), "taps": 3, "ph": randf() * TAU,
-			"jig": 1.0, "fall": false, "vy": 0.0, "a": 1.0})
+	_blobs.append({"p": p, "r": randf_range(0.085, 0.12), "life": randf_range(6.5, 8.5), "ph": randf() * TAU,
+			"jig": 1.0, "fall": false, "vy": 0.0, "a": 1.0, "zap": 0.0})
 
 
 func active_blobs() -> int:
@@ -171,19 +192,36 @@ func random_blob_point() -> Vector2:
 	return size * 0.5
 
 
-func try_scrape(pos: Vector2) -> bool:
-	for i in range(_blobs.size() - 1, -1, -1):
-		var b: Dictionary = _blobs[i]
-		if b.fall:
-			continue
-		var c := Vector2(b.p.x * size.x, b.p.y * size.y)
-		if c.distance_to(pos) < b.r * size.y * 1.25:
-			b.taps -= 1
+## Windshield shock: fries every white cell stuck to the glass.
+func shock() -> void:
+	_shock = 1.0
+	_make_arcs()
+	for b in _blobs:
+		if not b.fall:
+			b.fall = true
+			b.vy = -0.25
 			b.jig = 1.0
-			if b.taps <= 0:
-				b.fall = true
-			return true
-	return false
+			b.zap = 1.0
+
+
+func _make_arcs() -> void:
+	_arcs.clear()
+	for i in 7:
+		var a := Vector2(randf_range(0.08, 0.92), randf_range(0.08, 0.7))
+		var b := a + Vector2.from_angle(randf() * TAU) * randf_range(0.15, 0.4)
+		var pl := PackedVector2Array([a])
+		for k in range(1, 9):
+			var q := a.lerp(b, k / 8.0) + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 0.025
+			pl.append(q)
+		_arcs.append(pl)
+	for bl in _blobs:
+		if bl.zap > 0.0:
+			var c: Vector2 = bl.p
+			var pl := PackedVector2Array([c])
+			var e := c + Vector2.from_angle(randf() * TAU) * 0.18
+			for k in range(1, 7):
+				pl.append(c.lerp(e, k / 6.0) + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 0.02)
+			_arcs.append(pl)
 
 
 func dislodge_one() -> bool:
@@ -207,28 +245,17 @@ func _draw() -> void:
 	var H := size.y
 	if W < 1.0:
 		return
-	_draw_fork_markers()
 	_draw_blobs(W, H)
 	_draw_cracks(W, H)
 	_draw_frame(W, H)
 	_draw_dashboard(W, H)
 	_draw_crosshair(W, H)
+	_draw_shock(W, H)
+	_draw_turn_warning(W, H)
 	_draw_overlays(W, H)
+	_draw_zone_hints(W, H)
 	_draw_texts(W, H)
 	_draw_pause(W, H)
-
-
-func _draw_fork_markers() -> void:
-	var a := 0.55 + 0.45 * sin(_t * 8.0)
-	var sz := size.y * 0.05
-	for p in fork_points:
-		var col := Color(CYAN, a)
-		for k in 4:
-			var ang := PI * 0.25 + k * PI * 0.5
-			var d := Vector2.from_angle(ang)
-			var corner := p + d * sz
-			draw_line(corner, corner - Vector2(d.x, 0) * sz * 0.6, col, 3.0, true)
-			draw_line(corner, corner - Vector2(0, d.y) * sz * 0.6, col, 3.0, true)
 
 
 func _draw_blobs(W: float, H: float) -> void:
@@ -243,7 +270,8 @@ func _draw_blobs(W: float, H: float) -> void:
 			var rr := r * (1.0 + 0.08 * sin(5.0 * th + _t * 2.6 + b.ph) + 0.05 * sin(3.0 * th - _t * 1.7)
 					+ jig * 0.12 * sin(th * 7.0 + _t * 40.0))
 			pts.append(c + Vector2.from_angle(th) * rr)
-		draw_colored_polygon(pts, Color(0.93, 0.87, 0.82, 0.78 * alpha))
+		var zap: float = b.zap
+		draw_colored_polygon(pts, Color(0.93, 0.87, 0.82, 0.78 * alpha).lerp(Color(0.6, 0.85, 1.0, 0.9 * alpha), zap))
 		pts.append(pts[0])
 		draw_polyline(pts, Color(0.7, 0.6, 0.62, 0.9 * alpha), 3.0, true)
 		# Lobed nucleus
@@ -253,10 +281,6 @@ func _draw_blobs(W: float, H: float) -> void:
 		for k in 7:
 			var g := c + Vector2.from_angle(b.ph * 3.0 + k * 0.9) * r * (0.45 + 0.08 * (k % 3))
 			draw_circle(g, r * 0.035, Color(0.75, 0.62, 0.7, 0.8 * alpha))
-		if not b.fall:
-			var tap_txt := "TAP ×%d" % int(b.taps)
-			draw_string(_font, c + Vector2(-r, r * 1.25), tap_txt, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0,
-					int(H * 0.028), Color(1, 0.95, 0.9, 0.85 * alpha))
 
 
 func _draw_cracks(W: float, H: float) -> void:
@@ -371,6 +395,15 @@ func _draw_dashboard(W: float, H: float) -> void:
 		draw_rect(pr, CYAN if on else Color(0.12, 0.2, 0.22))
 		draw_rect(pr, Color(0, 0, 0, 0.5), false, 1.5)
 	draw_string(_font, Vector2(lx, ly + H * 0.075), "%d KM/H" % int(speed * 3.6), HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs * 0.75), Color(0.75, 0.7, 0.72))
+	# Shock charges, left of the glass gauge's partner screen.
+	var sx := W * 0.235
+	var sy := H * 0.86
+	var scol := Color(0.55, 0.8, 1.0)
+	draw_string(_font, Vector2(sx, sy - fs * 0.3), "SHOCK", HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs * 0.75), scol)
+	for i in 5:
+		var on := i < shock_charges
+		var cx := sx + H * 0.018 + i * H * 0.04
+		_bolt(Vector2(cx, sy + H * 0.035), H * 0.03, scol if on else Color(0.12, 0.17, 0.25))
 
 	# Blinking indicator lights
 	for i in 6:
@@ -442,3 +475,68 @@ func _draw_pause(W: float, H: float) -> void:
 	var bh := rad * 0.9
 	draw_rect(Rect2(c.x - bw * 1.6, c.y - bh * 0.5, bw, bh), Color(1, 0.85, 0.8))
 	draw_rect(Rect2(c.x + bw * 0.6, c.y - bh * 0.5, bw, bh), Color(1, 0.85, 0.8))
+
+
+func _bolt(c: Vector2, h: float, col: Color) -> void:
+	var w := h * 0.45
+	var pts := PackedVector2Array([
+		c + Vector2(w * 0.25, -h * 0.5), c + Vector2(-w * 0.5, h * 0.08), c + Vector2(-w * 0.02, h * 0.08),
+		c + Vector2(-w * 0.25, h * 0.5), c + Vector2(w * 0.5, -h * 0.08), c + Vector2(w * 0.02, -h * 0.08)])
+	draw_colored_polygon(pts, col)
+
+
+func _draw_shock(W: float, H: float) -> void:
+	if _shock <= 0.0:
+		return
+	draw_rect(Rect2(0, 0, W, H), Color(0.35, 0.6, 1.0, _shock * 0.28))
+	for pl in _arcs:
+		var sp := PackedVector2Array()
+		for q in pl:
+			sp.append(Vector2(q.x * W, q.y * H))
+		draw_polyline(sp, Color(0.4, 0.7, 1.0, _shock * 0.6), 6.0, true)
+		draw_polyline(sp, Color(0.9, 0.97, 1.0, _shock), 2.0, true)
+
+
+func _arrow(tip: Vector2, dir: Vector2, sz: float, col: Color) -> void:
+	var back := tip - dir * sz
+	var side := dir.orthogonal() * sz * 0.75
+	draw_line(back + side, tip, col, sz * 0.28, true)
+	draw_line(back - side, tip, col, sz * 0.28, true)
+
+
+## Flashing chevrons at the edge of the window, pointing the way the vessel bends.
+func _draw_turn_warning(W: float, H: float) -> void:
+	if turn_dir == Vector2.ZERO:
+		return
+	var d := Vector2(turn_dir.x, -turn_dir.y).normalized()   # screen space, y down
+	var inside := turn_dist <= 0.0
+	var urgency := 1.0 if inside else clampf(1.0 - turn_dist / 70.0, 0.0, 1.0)
+	var rate := lerpf(4.0, 12.0, urgency)
+	var blink := 0.55 + 0.45 * sin(_t * rate)
+	var col := Color(1.0, 0.82, 0.25, blink).lerp(Color(1.0, 0.3, 0.2, blink), urgency)
+	var c := Vector2(W * 0.5, H * 0.38)
+	var reach := Vector2(W * 0.3, H * 0.24)
+	var anchor := c + d * reach
+	var sz := H * 0.05
+	for k in 3:
+		_arrow(anchor + d * (k * sz * 0.9 - sz * 0.6), d, sz, Color(col, col.a * (0.4 + 0.6 * float(k) / 2.0)))
+	var label := "SHARP TURN"
+	if inside:
+		label = "LEAN INTO IT"
+	var sub := "%d°" % int(turn_deg) if inside else "%d m" % int(turn_dist)
+	var tp := Vector2(0, H * 0.155)
+	_shadow_text(tp, label, W, int(H * 0.045), col)
+	_shadow_text(tp + Vector2(0, H * 0.05), sub, W, int(H * 0.032), Color(1, 0.9, 0.8, blink))
+
+
+## Faint labels for the two touch zones, shown for the first seconds of a run.
+func _draw_zone_hints(W: float, H: float) -> void:
+	if _zone_hint <= 0.0:
+		return
+	var a := clampf(_zone_hint / 2.0, 0.0, 1.0) * 0.75
+	var y := H * 0.74
+	draw_line(Vector2(W * 0.5, H * 0.66), Vector2(W * 0.5, H * 0.76), Color(1, 1, 1, a * 0.4), 2.0)
+	_bolt(Vector2(W * 0.25 - H * 0.07, y - H * 0.012), H * 0.045, Color(0.55, 0.8, 1.0, a))
+	draw_string(_font, Vector2(W * 0.25 - H * 0.03, y), "TOUCH: SHOCK", HORIZONTAL_ALIGNMENT_LEFT, -1, int(H * 0.03), Color(0.7, 0.88, 1.0, a))
+	draw_circle(Vector2(W * 0.75 - H * 0.07, y - H * 0.012), H * 0.016, Color(0.45, 0.95, 1.0, a))
+	draw_string(_font, Vector2(W * 0.75 - H * 0.03, y), "HOLD: FIRE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(H * 0.03), Color(0.7, 1.0, 1.0, a))

@@ -8,7 +8,13 @@ signal pause_requested
 enum State { IDLE, DEMO, COUNTDOWN, PLAYING, DYING, COMPLETE }
 
 const SHIP_RADIUS := 0.9
-const MAX_LATERAL := 13.0
+const MAX_LATERAL := 14.0
+const DRIFT_GAIN := 7.0           # how hard bends push the ship toward the outside wall
+const DRIFT_MAX := 7.5
+const START_SHOCKS := 3
+const MAX_SHOCKS := 5
+const SHOCK_RANGE := 16.0         # white cells this close are fried too
+const TURN_WARN_TIME := 3.2       # seconds of warning before a sharp turn
 const LASER_SPEED := 150.0
 const BOLT_SPEED := 34.0
 const ORIGIN_SHIFT_DIST := 2500.0
@@ -54,11 +60,14 @@ var _has_tilt := false
 var _fire_touches: Dictionary = {}
 var _drain_accum := 0.0
 var _alarm_cd := 0.0
-var _jolt_cd := 0.0
-var _prev_accel := Vector3.ZERO
+var shock_charges := START_SHOCKS
+var _shock_cd := 0.0
+var _shock_queued := false
+var _drift := Vector2.ZERO
+var shots_fired := 0
+var dmg_log := {}   # damage taken by source, for tuning
 var _level_len := 0.0
 var _finish_announced := false
-var _fork_announced: VesselSegment = null
 var _seed := 0
 var _steer := Vector2.ZERO
 var bot := false   # debug autopilot, enabled with the --bot user argument
@@ -125,7 +134,7 @@ func _make_plasma() -> CPUParticles3D:
 	p.lifetime = 4.0
 	p.local_coords = false
 	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	p.emission_box_extents = Vector3(7, 7, 35)
+	p.emission_box_extents = Vector3(11, 11, 35)
 	p.position = Vector3(0, 0, -45)
 	p.direction = Vector3(0, 0, 1)
 	p.spread = 180.0
@@ -177,7 +186,10 @@ func _begin(run_mode: String, level: int) -> void:
 	_fire_touches.clear()
 	_drain_accum = 0.0
 	_finish_announced = false
-	_fork_announced = null
+	shock_charges = START_SHOCKS
+	_shock_cd = 0.0
+	_shock_queued = false
+	_drift = Vector2.ZERO
 	_level_len = float(G.LEVELS[level].length) if mode == "campaign" else 0.0
 	speed = 0.0
 	seg = world.reset(_seed)
@@ -206,11 +218,11 @@ func get_difficulty(dist: float) -> Dictionary:
 	return G.demo_diff()
 
 
-func allow_fork_at(dist: float) -> bool:
-	# No branching right at the start, or just before a campaign finish line.
-	if dist < 150.0:
+func allow_turns_at(dist: float, seg_len: float) -> bool:
+	# No sharp turns in the first stretch, or across a campaign finish line.
+	if dist < 120.0:
 		return false
-	if mode == "campaign" and dist > _level_len - 120.0:
+	if mode == "campaign" and dist + seg_len > _level_len - 40.0:
 		return false
 	return true
 
@@ -277,8 +289,9 @@ func _fly(delta: float, autopilot: bool) -> void:
 	var steer := _autopilot() if (autopilot or bot) else _read_steer()
 	_steer = steer
 	lat_vel = lat_vel.lerp(steer * MAX_LATERAL, clampf(delta * 6.0, 0.0, 1.0))
-	offset += lat_vel * delta
-	_fork_assist(delta, autopilot)
+	# Inertia: bends push the ship toward the outside wall, so you lean into them.
+	_drift = (-seg.curvature_at(s) * speed * DRIFT_GAIN).limit_length(DRIFT_MAX)
+	offset += (lat_vel + _drift) * delta
 	s += speed * delta
 	route_dist = seg.start_dist + s
 	while s > seg.length:
@@ -291,43 +304,13 @@ func _fly(delta: float, autopilot: bool) -> void:
 
 
 func _enter_next_segment() -> void:
-	if seg.children_segs.is_empty():
-		world.make_children(seg)
-	var fr_old := seg.frame_at(seg.length)
-	var pos := seg.world_point_at(seg.length) + fr_old.x * offset.x + fr_old.y * offset.y
-	var vel3 := fr_old.x * lat_vel.x + fr_old.y * lat_vel.y
-	var best: VesselSegment = seg.children_segs[0]
-	if seg.children_segs.size() > 1:
-		var best_d := INF
-		for c in seg.children_segs:
-			var d: float = pos.distance_to(c.world_point_at(0.0))
-			if d < best_d:
-				best_d = d
-				best = c
+	world.ensure_next(seg)
+	# Consecutive segments share their end/start frame, so offset carries over.
 	s -= seg.length
 	var old := seg
-	seg = best
+	seg = seg.next_seg
 	route_dist = seg.start_dist + s
-	world.on_enter(seg, old, route_dist)
-	var fr := seg.frame_at(0.0)
-	var rel := pos - seg.world_point_at(0.0)
-	offset = Vector2(rel.dot(fr.x), rel.dot(fr.y))
-	lat_vel = Vector2(vel3.dot(fr.x), vel3.dot(fr.y))
-
-
-func _fork_assist(delta: float, autopilot: bool) -> void:
-	# Near a branch, gently funnel the ship into whichever branch it leans toward.
-	if not seg.is_fork:
-		return
-	var to_end := seg.length - s
-	if to_end > 40.0:
-		return
-	var offs := seg.fork_offsets()
-	var target := offs[0]
-	if offset.distance_to(offs[1]) < offset.distance_to(offs[0]):
-		target = offs[1]
-	var strength := (1.0 - to_end / 40.0) * (2.6 if autopilot else 1.8)
-	offset = offset.lerp(target, clampf(delta * strength, 0.0, 1.0))
+	world.on_leave(old, route_dist)
 
 
 func _wall_check(autopilot: bool) -> void:
@@ -339,7 +322,7 @@ func _wall_check(autopilot: bool) -> void:
 	var n := offset / d
 	var push := d - free_r
 	offset = n * free_r
-	var vn := lat_vel.dot(n)
+	var vn := (lat_vel + _drift).dot(n)
 	if vn > 0.0:
 		lat_vel -= n * vn * 1.7
 	if autopilot or state != State.PLAYING:
@@ -356,13 +339,8 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	var fr := seg.frame_at(s)
 	player_pos = seg.world_point_at(s) + fr.x * offset.x + fr.y * offset.y
 	var look := seg.frame_at(s + 7.0)
-	if s + 7.0 > seg.length and not seg.children_segs.is_empty():
-		var nxt: VesselSegment = seg.children_segs[0]
-		if seg.children_segs.size() > 1:
-			var offs := seg.fork_offsets()
-			if offset.distance_to(offs[1]) < offset.distance_to(offs[0]):
-				nxt = seg.children_segs[1]
-		look = nxt.frame_at(s + 7.0 - seg.length)
+	if s + 7.0 > seg.length and seg.next_seg != null:
+		look = seg.next_seg.frame_at(s + 7.0 - seg.length)
 	# Bank and nudge the view toward the direction of travel.
 	var b := look
 	b = b.rotated(b.y, -lat_vel.x * 0.012)
@@ -438,7 +416,8 @@ func _curve(x: float) -> float:
 
 func _autopilot() -> Vector2:
 	var r := maxf(seg.radius_at(s), 1.0)
-	return (-offset / r * 1.6).limit_length(1.0)
+	var counter := -_drift / MAX_LATERAL
+	return (-offset / r * 1.6 + counter).limit_length(1.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -449,13 +428,17 @@ func _unhandled_input(event: InputEvent) -> void:
 				pause_requested.emit()
 				get_viewport().set_input_as_handled()
 				return
-			if state == State.PLAYING and hud.try_scrape(t.position):
-				Sfx.play("squish", -6.0, randf_range(1.2, 1.5))
-				get_viewport().set_input_as_handled()
+			# Left half of the screen shocks the windshield, right half fires.
+			if t.position.x < get_viewport().get_visible_rect().size.x * 0.5:
+				if state == State.PLAYING:
+					_shock_queued = true
 				return
 			_fire_touches[t.index] = true
 		else:
 			_fire_touches.erase(t.index)
+	elif event.is_action_pressed("shock"):
+		if state == State.PLAYING:
+			_shock_queued = true
 	elif event.is_action_pressed("pause"):
 		if state == State.PLAYING or state == State.COUNTDOWN:
 			pause_requested.emit()
@@ -481,10 +464,11 @@ func _combat(delta: float) -> void:
 	if blobs > 0:
 		var drain := BLOB_DRAIN * blobs * delta
 		integrity -= drain
+		dmg_log["glass_cells"] = float(dmg_log.get("glass_cells", 0.0)) + drain
 		if god:
 			integrity = maxf(integrity, 1.0)
-		if bot and randf() < delta * 1.5:
-			hud.dislodge_one()
+		if bot and randf() < delta * 0.7:
+			_shock_queued = true
 		_drain_accum += drain
 		if _drain_accum > 12.0:
 			_drain_accum = 0.0
@@ -493,15 +477,10 @@ func _combat(delta: float) -> void:
 		if integrity <= 0.0:
 			_die()
 
-	# A sharp jolt of the phone shakes a white cell loose.
-	_jolt_cd -= delta
-	var acc := Input.get_accelerometer()
-	if acc.length_squared() > 0.01:
-		if _jolt_cd <= 0.0 and blobs > 0 and (acc - _prev_accel).length() > 13.0:
-			if hud.dislodge_one():
-				Sfx.play("squish", -4.0, 0.8)
-				_jolt_cd = 0.45
-		_prev_accel = acc
+	_shock_cd -= delta
+	if _shock_queued:
+		_shock_queued = false
+		_shock()
 
 	_alarm_cd -= delta
 	if integrity < 30.0 and _alarm_cd <= 0.0:
@@ -513,7 +492,7 @@ func _fire() -> void:
 	var lvl := laser_level
 	var interval: float = [0.22, 0.22, 0.14, 0.14, 0.11][lvl - 1]
 	_fire_cd = interval
-	var aim := _aim_direction()
+	shots_fired += 1
 	var shots: Array = []   # [local cannon offset, angular spread]
 	match lvl:
 		1:
@@ -532,7 +511,8 @@ func _fire() -> void:
 			shots.append([Vector3(0.0, -0.85, -0.6), 0.0])
 			shots.append([Vector3(1.2, -0.4, -0.6), 0.06])
 			shots.append([Vector3(-1.2, -0.4, -0.6), -0.06])
-	var target_pt := player_pos + aim * 70.0
+	# Lasers fly straight at the crosshair; no aim assist.
+	var target_pt := player_pos + forward * 70.0
 	var mat := Meshes.glow_mat(LASER_COLORS[lvl - 1], 3.2)
 	for sh in shots:
 		var origin: Vector3 = camera.global_transform * (sh[0] as Vector3)
@@ -548,22 +528,34 @@ func _fire() -> void:
 	Sfx.play("laser", -9.0 if lvl > 1 else -7.0, randf_range(0.95, 1.08))
 
 
-func _aim_direction() -> Vector3:
-	# Light aim assist: snap to an enemy close to the crosshair.
-	var best_dir := forward
-	var best_cos := cos(deg_to_rad(7.0))
+func _shock() -> void:
+	if _shock_cd > 0.0:
+		return
+	var on_glass := hud.active_blobs()
+	var near: Array = []
 	for e in get_tree().get_nodes_in_group("enemy"):
-		if e.dead:
-			continue
-		var to: Vector3 = e.global_position - player_pos
-		var dist := to.length()
-		if dist < 6.0 or dist > 85.0:
-			continue
-		var c := to.dot(forward) / dist
-		if c > best_cos:
-			best_cos = c
-			best_dir = to / dist
-	return best_dir
+		if e is WhiteCell and not e.dead and e.global_position.distance_to(player_pos) < SHOCK_RANGE:
+			near.append(e)
+	if on_glass == 0 and near.is_empty():
+		hud.show_message("GLASS IS CLEAR · SHOCK SAVED", Color(0.6, 0.85, 1.0), 1.0)
+		return
+	if shock_charges <= 0:
+		hud.show_message("NO SHOCK CHARGES", Color(1.0, 0.5, 0.4), 1.2)
+		Sfx.play("blip", -6.0, 0.6)
+		return
+	shock_charges -= 1
+	_shock_cd = 0.6
+	hud.shock()
+	for e in near:
+		e.dead = true
+		burst(e.global_position, Color(0.6, 0.85, 1.0), 26)
+		kills += 1
+		kill_points += int(e.points)
+		e.queue_free()
+	kill_points += 100 * on_glass
+	Sfx.play("zap")
+	_shake = maxf(_shake, 0.25)
+	_vibrate(120)
 
 
 func enemy_fire(from: Vector3) -> void:
@@ -606,7 +598,7 @@ func _move_projectiles(delta: float, collide: bool) -> void:
 		bp.life -= delta
 		if collide and _seg_hits_sphere(b0, bp.position, player_pos, SHIP_RADIUS + 0.45):
 			bp.life = 0.0
-			damage(8.0, camera.unproject_position(b0), "bolt")
+			damage(6.0, camera.unproject_position(b0), "bolt")
 		if bp.life <= 0.0:
 			bp.queue_free()
 
@@ -634,7 +626,10 @@ func _check_contacts() -> void:
 			hud.add_blob(sp)
 			Sfx.play("squish", -2.0)
 			_vibrate(60)
-			hud.show_message("WHITE CELL ON THE GLASS · TAP IT OR SHAKE!", Color(1.0, 0.95, 0.85), 2.0)
+			if shock_charges > 0:
+				hud.show_message("WHITE CELL ON THE GLASS · TOUCH LEFT SIDE TO SHOCK", Color(1.0, 0.95, 0.85), 2.2)
+			else:
+				hud.show_message("WHITE CELL ON THE GLASS · NO SHOCKS LEFT", Color(1.0, 0.6, 0.5), 2.2)
 		else:
 			e.dead = true
 			burst(e.global_position, Color(0.9, 0.08, 0.06), 30)
@@ -653,6 +648,14 @@ func _collect(pu: PowerUp) -> void:
 		hud.dislodge_one()
 		hud.show_message("WINDOW REPAIRED +%d" % int(integrity - before), Color(0.4, 1.0, 0.9))
 		Sfx.play("repair")
+	elif pu.kind == "shock":
+		if shock_charges < MAX_SHOCKS:
+			shock_charges += 1
+			hud.show_message("SHOCK CHARGE +1", Color(0.55, 0.8, 1.0))
+		else:
+			kill_points += 300
+			hud.show_message("SHOCKS FULL · +300", Color(0.55, 0.8, 1.0))
+		Sfx.play("upgrade", -2.0, 1.25)
 	else:
 		if laser_level < 5:
 			laser_level += 1
@@ -661,7 +664,8 @@ func _collect(pu: PowerUp) -> void:
 			kill_points += 500
 			hud.show_message("LASERS MAXED · +500", Color(1.0, 0.82, 0.3))
 		Sfx.play("upgrade")
-	burst(pu.global_position, Color(0.4, 1.0, 0.9) if pu.kind == "repair" else Color(1.0, 0.8, 0.2), 24)
+	var pcol := {"repair": Color(0.4, 1.0, 0.9), "shock": Color(0.55, 0.75, 1.0), "laser": Color(1.0, 0.8, 0.2)}
+	burst(pu.global_position, pcol[pu.kind], 24)
 	pu.queue_free()
 
 
@@ -675,6 +679,7 @@ func damage(amount: float, screen_pos: Vector2, kind: String) -> void:
 	if state != State.PLAYING:
 		return
 	integrity -= amount
+	dmg_log[kind] = float(dmg_log.get(kind, 0.0)) + amount
 	if god:
 		integrity = maxf(integrity, 1.0)
 	hud.add_crack(screen_pos, amount)
@@ -719,10 +724,10 @@ func burst(pos: Vector3, color: Color, amount: int) -> void:
 # --- Progress & ending -------------------------------------------------------
 
 func _check_progress() -> void:
-	if seg.is_fork and seg.length - s < 110.0 and _fork_announced != seg:
-		_fork_announced = seg
-		hud.show_message("BRANCH AHEAD · LEAN TO CHOOSE", Color(0.6, 0.95, 1.0), 1.8)
-		Sfx.play("blip", -6.0)
+	var tw := next_turn()
+	if not tw.is_empty() and float(tw.dist) > 0.0 and not tw.t.get("warned", false):
+		tw.t["warned"] = true
+		Sfx.play("warn", -3.0)
 	if mode == "campaign":
 		var remaining := _level_len - route_dist
 		if remaining < 200.0 and not _finish_announced:
@@ -774,12 +779,33 @@ func _push_hud() -> void:
 	hud.distance = route_dist
 	hud.speed = speed
 	hud.remaining = _level_len - route_dist if mode == "campaign" else -1.0
-	hud.fork_points.clear()
-	if state == State.PLAYING and seg.is_fork and seg.length - s < 90.0:
-		for c in seg.children_segs:
-			var wp: Vector3 = c.world_point_at(minf(45.0, c.length))
-			if not camera.is_position_behind(wp):
-				hud.fork_points.append(camera.unproject_position(wp))
+	hud.shock_charges = shock_charges
+	var tw := next_turn() if state == State.PLAYING else {}
+	if tw.is_empty():
+		hud.turn_dir = Vector2.ZERO
+	else:
+		hud.turn_dir = tw.dir
+		hud.turn_dist = tw.dist
+		hud.turn_deg = tw.deg
+
+
+## The sharp turn coming up (or under way): {t, dist, dir, deg}, or {} if none
+## within the warning window. dist <= 0 means the ship is inside the turn.
+func next_turn() -> Dictionary:
+	var warn := maxf(speed, 12.0) * TURN_WARN_TIME
+	var sg := seg
+	var base := -s
+	for hop in 2:
+		if sg == null:
+			break
+		for t in sg.turns:
+			var start: float = base + float(t.s)
+			var end: float = start + float(t.len)
+			if end > 0.0 and start < warn:
+				return {"t": t, "dist": start, "dir": t.dir, "deg": t.deg}
+		base += sg.length
+		sg = sg.next_seg
+	return {}
 
 
 # --- Spawning ------------------------------------------------------------------
@@ -814,16 +840,13 @@ func populate(sg: VesselSegment, diff: Dictionary) -> void:
 			var w := WhiteCell.new()
 			w.setup(self, sg, at, _rand_disk(rng, sg.radius_at(at) * 0.6), rng)
 			sg.add_child(w)
-		# Power-ups on a fixed spacing along the route; every branch gets them.
+		# Power-ups on a fixed spacing along the route.
 		var spacing: float = diff.powerup
 		var k := int(ceil((sg.start_dist + s0) / spacing))
 		while k * spacing < sg.start_dist + s1:
 			var at := k * spacing - sg.start_dist
 			_spawn_powerup(sg, at, rng)
 			k += 1
-		# Reward for picking a branch: sometimes a bonus pickup just inside it.
-		if sg.depth > 0 and rng.randf() < 0.35 and sg.length > 60.0:
-			_spawn_powerup(sg, 35.0, rng)
 
 
 func _spawn_red(sg: VesselSegment, at: float, off: Vector2, shooter: bool, diff: Dictionary, rng: RandomNumberGenerator) -> void:
@@ -833,7 +856,13 @@ func _spawn_red(sg: VesselSegment, at: float, off: Vector2, shooter: bool, diff:
 
 
 func _spawn_powerup(sg: VesselSegment, at: float, rng: RandomNumberGenerator) -> void:
-	var kind := "repair" if rng.randf() < 0.55 else "laser"
+	# Mostly repairs; shock charges are semi-rare and laser upgrades rarer still.
+	var roll := rng.randf()
+	var kind := "repair"
+	if roll > 0.82:
+		kind = "laser"
+	elif roll > 0.62:
+		kind = "shock"
 	var p := PowerUp.new()
 	p.setup(kind, sg.local_offset_point(at, _rand_disk(rng, sg.radius_at(at) * 0.45)))
 	sg.add_child(p)

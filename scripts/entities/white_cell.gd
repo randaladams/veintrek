@@ -8,7 +8,7 @@ var seg: VesselSegment
 var s := 0.0
 var off := Vector2.ZERO
 var radius := 1.7
-var hp := 3
+var hp := 2
 var dead := false
 var chasing := false
 var points := 150

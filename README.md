@@ -39,18 +39,25 @@ For a Play Store release you'll want a proper private release key instead.
 
 ## How to play
 
-- **Tilt** to steer. Whatever angle you hold the phone at when a run starts
-  (during the 3‑2‑1 countdown) becomes centre. Recalibrate from the pause menu.
-- **Touch and hold** anywhere to fire. Auto-fire is available in Settings.
-- Avoid the **vessel walls**. Some stretches narrow sharply.
+- **Tilt** to steer and aim. Whatever angle you hold the phone at when a run
+  starts (during the 3‑2‑1 countdown) becomes centre. Recalibrate from the
+  pause menu. The gold dot by the crosshair shows where your tilt is pushing.
+- **Hold the right side** of the screen to fire. Lasers go straight to the
+  crosshair; there's no aim assist. Auto-fire is available in Settings.
+- **Touch the left side** to shock the windshield. It fries every white cell
+  stuck to the glass, plus any hunting you nearby. You start each run with
+  **3 charges** (max 5). A charge isn't spent if there's nothing to shock.
+- **Sharp turns** are announced with flashing chevrons and a countdown in
+  metres. Bends throw the ship toward the outside wall, so lean the way the
+  arrows point.
 - **Red cells** crack your glass if you ram them. **Dark infected cells** with a
-  green core shoot plasma at you.
-- **White cells** chase you and latch onto the window, draining its strength.
-  **Tap** one three times or give the phone a **sharp shake** to knock it off.
-- **Cyan rings** repair the window. **Gold crystals** upgrade the lasers
-  (Mk‑1 to Mk‑5: twin cannons, faster fire, a third cannon, then spread with
-  piercing shots).
-- At a **branch**, cyan brackets mark each path. Lean toward the one you want.
+  green core shoot plasma at you. Dodge it or shoot them first.
+- **White cells** chase you and latch onto the window, draining its strength
+  until you shock them off (or they lose their grip after several seconds).
+- Pickups: **cyan rings** repair the window, **blue lightning bolts** add a
+  shock charge (semi-rare), **gold crystals** upgrade the lasers (rare; Mk‑1 to
+  Mk‑5: twin cannons, faster fire, a third cannon, then spread with piercing
+  shots).
 
 ### Modes
 
@@ -62,15 +69,17 @@ For a Play Store release you'll want a proper private release key instead.
 If the tilt directions feel backwards on your phone, flip **Invert left/right**
 or **Invert up/down** in Settings.
 
+On a computer: arrow keys / WASD steer, Space fires, E shocks, Esc pauses.
+
 ## Project layout
 
 | Path | What it does |
 | --- | --- |
 | `scripts/main.gd` | Wires the game and menus together; developer command-line flags |
 | `scripts/game.gd` | Flight, tilt steering, weapons, collisions, spawning, scoring |
-| `scripts/vessel_segment.gd` | One stretch of vessel: curved centreline, radius profile, tube mesh |
-| `scripts/vessel_world.gd` | Grows branching vessels ahead of the ship and frees them behind |
-| `scripts/cockpit.gd` | Cockpit canopy, dashboard gauges, glass cracks, cells stuck to the window |
+| `scripts/vessel_segment.gd` | One stretch of vessel: curved centreline, sharp turns, radius profile, tube mesh |
+| `scripts/vessel_world.gd` | Grows the vessel ahead of the ship and frees it behind |
+| `scripts/cockpit.gd` | Cockpit canopy, dashboard gauges, turn warnings, glass cracks, shock effect |
 | `scripts/ui.gd` | Title, level select, settings, how to play, pause and results screens |
 | `scripts/sfx.gd` | Synthesised sound effects and the heartbeat ambience |
 | `scripts/globals.gd` | Settings, save data, campaign level definitions, difficulty curves |
@@ -83,8 +92,8 @@ Tuning lives in `scripts/globals.gd`: `LEVELS` for the campaign and
 
 ## Running on a computer
 
-Open the folder in Godot 4.7 and press Play. Arrow keys / WASD steer, Space
-fires, Esc pauses, and clicking the window counts as a touch.
+Open the folder in Godot 4.7 and press Play. Clicking the window counts as a
+touch (left half shocks, right half fires).
 
 Developer flags go after `--`:
 
@@ -92,4 +101,5 @@ Developer flags go after `--`:
 godot -- --start=endless --bot           # jump into endless with autopilot + auto-fire
 godot -- --start=campaign:2 --god        # level 3, unbreakable window
 godot -- --shots=/tmp/shots --shot-every=2 --shot-count=5   # save screenshots, then quit
+godot -- --selftest                      # inject touches and check fire / shock / pause
 ```

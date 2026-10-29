@@ -1,6 +1,7 @@
 class_name PowerUp
 extends Node3D
-## Floating pickup: "repair" restores window strength, "laser" upgrades the guns.
+## Floating pickup: "repair" restores window strength, "shock" adds a windshield
+## shock charge, "laser" upgrades the guns.
 
 var kind := "repair"
 var radius := 2.6
@@ -25,6 +26,22 @@ func setup(k: String, local_pos: Vector3) -> void:
 			bar.mesh = Meshes.box(Vector3(0.28, 1.1, 0.28))
 			bar.material_override = Meshes.glow_mat(Color(0.9, 1.0, 1.0), 2.5)
 			bar.rotation.z = r
+			_spin.add_child(bar)
+	elif kind == "shock":
+		var ring := MeshInstance3D.new()
+		ring.mesh = Meshes.torus(0.95, 1.15)
+		ring.material_override = Meshes.glow_mat(Color(0.35, 0.6, 1.0), 2.4)
+		ring.rotation.x = PI * 0.5
+		_spin.add_child(ring)
+		# Zig-zag lightning bolt
+		var bolt_mat := Meshes.glow_mat(Color(0.85, 0.95, 1.0), 3.0)
+		var parts := [[Vector3(0.12, 0.45, 0), 0.5], [Vector3(-0.02, 0.0, 0), -0.7], [Vector3(-0.12, -0.45, 0), 0.5]]
+		for part in parts:
+			var bar := MeshInstance3D.new()
+			bar.mesh = Meshes.box(Vector3(0.18, 0.62, 0.18))
+			bar.material_override = bolt_mat
+			bar.position = part[0]
+			bar.rotation.z = part[1]
 			_spin.add_child(bar)
 	else:
 		var col := Color(1.0, 0.78, 0.15)

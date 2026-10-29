@@ -1,33 +1,28 @@
 class_name VesselSegment
 extends Node3D
 ## One stretch of blood vessel: a curved centreline with a varying radius,
-## rendered as a tube we fly inside. A segment either continues into one
-## child segment or ends in a fork with two children.
+## rendered as a tube we fly inside. Segments chain end to end into a single
+## path. Some segments contain sharp, announced turns.
 
-const STEP := 1.5        # metres between centreline samples / mesh rings
-const SIDES := 28        # vertices around each ring
-const FORK_FLARE := 1.12 # how much the vessel widens just before a fork
-const FORK_CHILD_R := 0.66
-const FORK_SPREAD := 0.38
+const STEP := 1.5   # metres between centreline samples / mesh rings
+const SIDES := 32   # vertices around each ring
 
 var pts := PackedVector3Array()    # centreline, local to this node
 var tans := PackedVector3Array()   # forward direction
 var ups := PackedVector3Array()    # parallel-transported "up"
 var rights := PackedVector3Array()
 var radii := PackedFloat32Array()
+var curv := PackedVector2Array()   # curvature in the local (right, up) frame, rad/m
 var length := 0.0
 var start_dist := 0.0              # distance along the route at s = 0
-var depth := 0
-var children_segs: Array = []
-var is_fork := false
-var fork_axis := Vector2.RIGHT     # split direction in the end frame (right, up)
-var fork_angle := 0.45             # divergence of each branch, radians
+var next_seg: VesselSegment = null
+## Sharp turns: each {s: start, len: length, dir: Vector2 (right, up), deg: total angle}
+var turns: Array[Dictionary] = []
 
 
 func build(rng: RandomNumberGenerator, origin: Vector3, dir: Vector3, up: Vector3,
-		start_r: float, seg_len: float, diff: Dictionary, make_fork: bool) -> void:
+		start_r: float, seg_len: float, diff: Dictionary, allow_turns: bool) -> void:
 	position = origin
-	is_fork = make_fork
 	var d := dir.normalized()
 	var u := (up - d * up.dot(d)).normalized()
 	var n := int(ceil(seg_len / STEP)) + 1
@@ -38,30 +33,47 @@ func build(rng: RandomNumberGenerator, origin: Vector3, dir: Vector3, up: Vector
 	var narrow_depth: float = diff.narrow_depth
 	var cons: Array[Vector3] = []   # (centre s, half width, radius factor)
 	if length > 70.0 and rng.randf() < narrow_chance:
-		cons.append(Vector3(rng.randf_range(35.0, length - 35.0), rng.randf_range(10.0, 22.0),
+		cons.append(Vector3(rng.randf_range(35.0, length - 35.0), rng.randf_range(12.0, 24.0),
 				rng.randf_range(narrow_depth, narrow_depth + 0.15)))
-	if length > 160.0 and rng.randf() < narrow_chance * 0.5:
-		cons.append(Vector3(rng.randf_range(35.0, length - 35.0), rng.randf_range(8.0, 16.0),
-				rng.randf_range(narrow_depth, narrow_depth + 0.2)))
+
+	# Plan sharp turns. Each is a smooth bend of 50-95 degrees over 25-45 m.
+	if allow_turns:
+		var want: float = length / 100.0 * float(diff.turns)
+		var count := int(want) + (1 if rng.randf() < want - int(want) else 0)
+		var cursor := 30.0
+		for k in count:
+			var deg := rng.randf_range(float(diff.turn_deg_min), float(diff.turn_deg_max))
+			var peak: float = diff.sharp   # peak curvature, rad/m
+			# With a sine-shaped curvature profile the total angle is peak * len * 2/pi.
+			var tlen := deg_to_rad(deg) * PI / (2.0 * peak)
+			var room := length - 15.0 - cursor - tlen
+			if room < 0.0:
+				break
+			var ts := cursor + rng.randf_range(0.0, room / float(count - k))
+			# Mostly left/right, sometimes up/down or diagonal, so the arrow reads clearly.
+			var dirs := [Vector2.LEFT, Vector2.RIGHT, Vector2.LEFT, Vector2.RIGHT,
+					Vector2.UP, Vector2.DOWN, Vector2(1, 1).normalized(), Vector2(-1, 1).normalized(),
+					Vector2(1, -1).normalized(), Vector2(-1, -1).normalized()]
+			var td: Vector2 = dirs[rng.randi() % dirs.size()]
+			turns.append({"s": ts, "len": tlen, "dir": td, "deg": deg, "peak": peak})
+			cursor = ts + tlen + 45.0
 
 	var wobble_phase := rng.randf() * TAU
 	var wobble_freq := rng.randf_range(0.03, 0.07)
-	var max_turn: float = diff.get("turn", 0.016)
+	var max_turn: float = diff.get("turn", 0.01)
 	var yaw_rate := 0.0
 	var pitch_rate := 0.0
 	var p := Vector3.ZERO
 
 	for i in n:
 		var s := i * STEP
-		var r := base_r * (1.0 + 0.07 * sin(s * wobble_freq + wobble_phase))
+		var r := base_r * (1.0 + 0.06 * sin(s * wobble_freq + wobble_phase))
 		for c in cons:
 			var x := absf(s - c.x) / c.y
 			if x < 1.0:
 				r *= lerpf(1.0, c.z, (cos(x * PI) + 1.0) * 0.5)
-		r = lerpf(start_r, r, smoothstep(0.0, 20.0, s))
-		r = maxf(r, 2.3)
-		if is_fork:
-			r *= lerpf(1.0, FORK_FLARE, smoothstep(length - 16.0, length, s))
+		r = lerpf(start_r, r, smoothstep(0.0, 25.0, s))
+		r = maxf(r, 3.5)
 		var right := d.cross(u).normalized()
 		pts.append(p)
 		tans.append(d)
@@ -69,26 +81,31 @@ func build(rng: RandomNumberGenerator, origin: Vector3, dir: Vector3, up: Vector
 		rights.append(right)
 		radii.append(r)
 
-		# Random-walk the curvature so the vessel snakes around.
+		# Gentle random wander, calmed down around sharp turns.
+		var calm := smoothstep(0.0, 12.0, s)
+		var k2 := Vector2.ZERO   # curvature this step, in (right, up)
+		for t in turns:
+			var a: float = (s - float(t.s)) / float(t.len)
+			if a > -0.3 and a < 1.3:
+				calm = 0.0
+			if a >= 0.0 and a <= 1.0:
+				k2 += (t.dir as Vector2) * float(t.peak) * sin(PI * a)
 		yaw_rate = clampf(yaw_rate * 0.985 + rng.randf_range(-1.0, 1.0) * max_turn * 0.12, -max_turn, max_turn)
 		pitch_rate = clampf(pitch_rate * 0.985 + rng.randf_range(-1.0, 1.0) * max_turn * 0.12, -max_turn, max_turn)
-		var calm := 1.0 - smoothstep(length - 30.0, length - 10.0, s) if is_fork else 1.0
-		calm *= smoothstep(0.0, 12.0, s)
-		var nd := d.rotated(u, yaw_rate * STEP * calm)
-		nd = nd.rotated(right, pitch_rate * STEP * calm).normalized()
+		k2 += Vector2(yaw_rate, pitch_rate) * calm
+		curv.append(k2)
+
+		# Bend the direction toward (right * k.x + up * k.y).
+		var bend := right * k2.x + u * k2.y
+		var nd := d
+		if bend.length() > 1e-6:
+			nd = d.rotated(d.cross(bend).normalized(), bend.length() * STEP).normalized()
 		var axis := d.cross(nd)
 		if axis.length() > 1e-6:
 			u = u.rotated(axis.normalized(), d.angle_to(nd))
 		u = (u - nd * u.dot(nd)).normalized()
 		d = nd
 		p += d * STEP
-
-	if is_fork:
-		var a := rng.randf_range(-0.6, 0.6)
-		if rng.randf() < 0.3:
-			a += PI * 0.5
-		fork_axis = Vector2.from_angle(a)
-		fork_angle = rng.randf_range(0.38, 0.55)
 
 
 func build_mesh(mat: Material) -> void:
@@ -113,7 +130,7 @@ func build_mesh(mat: Material) -> void:
 		var rt := rights[i]
 		var up := ups[i]
 		var r := radii[i]
-		var v := (start_dist + i * STEP) / 6.0
+		var v := (start_dist + i * STEP) / 8.0
 		var base := i * ring
 		for j in ring:
 			var radial := rt * cosv[j] + up * sinv[j]
@@ -173,6 +190,12 @@ func radius_at(s: float) -> float:
 	return lerpf(radii[i], radii[i + 1], l.y)
 
 
+func curvature_at(s: float) -> Vector2:
+	var l := _locate(s)
+	var i := int(l.x)
+	return curv[i].lerp(curv[i + 1], l.y)
+
+
 ## Basis with x = right, y = up, z = backwards (so -z looks down the vessel).
 func frame_at(s: float) -> Basis:
 	var l := _locate(s)
@@ -188,14 +211,13 @@ func local_offset_point(s: float, off: Vector2) -> Vector3:
 	return point_at(s) + b.x * off.x + b.y * off.y
 
 
-## Where each branch starts, as an offset in this segment's end frame.
-func fork_offsets() -> Array[Vector2]:
-	var re := radii[radii.size() - 1] / FORK_FLARE
-	var out: Array[Vector2] = []
-	out.append(fork_axis * re * FORK_SPREAD)
-	out.append(-fork_axis * re * FORK_SPREAD)
-	return out
-
-
 func end_radius() -> float:
 	return radii[radii.size() - 1]
+
+
+## True if s falls inside (or within `margin` metres of) a sharp turn.
+func in_turn(s: float, margin: float = 0.0) -> bool:
+	for t in turns:
+		if s > float(t.s) - margin and s < float(t.s) + float(t.len) + margin:
+			return true
+	return false

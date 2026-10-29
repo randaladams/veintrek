@@ -47,7 +47,7 @@ func show_screen(id: String) -> void:
 	_backdrop.visible = true
 	_backdrop.color = Color(0.04, 0.0, 0.01, 0.35 if id == "main" else 0.6)
 	if id == "main":
-		_high_label.text = "BEST ENDLESS SCORE  %d" % G.high_score if G.high_score > 0 else "Tilt to steer  ·  Hold to fire"
+		_high_label.text = "BEST ENDLESS SCORE  %d" % G.high_score if G.high_score > 0 else "Tilt to steer  ·  Right side fires  ·  Left side shocks"
 	elif id == "levels":
 		_refresh_levels()
 
@@ -234,13 +234,12 @@ func _build_help() -> void:
 	var box := _panel_screen("help", 900)
 	box.add_child(_label("HOW TO PLAY", 48, Color(1.0, 0.3, 0.22)))
 	var body := _label(
-		"• Tilt the phone to steer. The angle you hold it at when a run starts is centre.\n" +
-		"• Touch and hold anywhere to fire your lasers.\n" +
-		"• Don't scrape the vessel walls, and squeeze through the narrow parts.\n" +
-		"• Dark red cells are infected and shoot back. Ram a cell and your glass cracks.\n" +
-		"• White cells hunt you and stick to the window, draining it. Tap them off or give the phone a sharp shake.\n" +
-		"• Cyan rings repair the window. Gold crystals upgrade your lasers.\n" +
-		"• At a branch, lean toward the path you want.",
+		"• Tilt the phone to steer and aim. The angle you hold it at when a run starts is centre.\n" +
+		"• Hold the RIGHT side of the screen to fire. Lasers go where the crosshair points.\n" +
+		"• Touch the LEFT side to shock the windshield. It fries white cells stuck to the glass. You start with 3 charges.\n" +
+		"• When the arrows flash SHARP TURN, lean the way they point. Bends throw you toward the outside wall.\n" +
+		"• Dark red cells are infected and shoot back. Ram any cell and your glass cracks.\n" +
+		"• Cyan rings repair the window. Blue bolts add a shock charge. Gold crystals (rare) upgrade your lasers.",
 		26, Color(1, 0.9, 0.88), HORIZONTAL_ALIGNMENT_LEFT)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.custom_minimum_size = Vector2(840, 0)
