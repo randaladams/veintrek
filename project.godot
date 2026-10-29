@@ -36,6 +36,8 @@ window/handheld/orientation=4
 [input_devices]
 
 pointing/emulate_touch_from_mouse=true
+sensors/enable_accelerometer=true
+sensors/enable_gravity=true
 
 [rendering]
 

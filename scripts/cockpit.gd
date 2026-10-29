@@ -23,6 +23,8 @@ var remaining := -1.0
 var beat := 0.0
 var countdown := -1.0
 var fork_points: Array[Vector2] = []
+var steer := Vector2.ZERO
+var tilt_ok := true
 
 var _cracks: Array = []   # {lines: Array[PackedVector2Array] (normalised), o: Vector2, r: float}
 var _blobs: Array = []    # {p, r, taps, ph, jig, fall, vy, a}
@@ -387,6 +389,10 @@ func _draw_crosshair(W: float, H: float) -> void:
 	for k in 4:
 		var d := Vector2.from_angle(k * PI * 0.5)
 		draw_line(c + d * r * 1.3, c + d * r * 2.0, col, 2.0, true)
+	# Steering indicator: where the tilt is pushing the ship.
+	var sp := c + Vector2(steer.x, -steer.y) * r * 2.4
+	draw_line(c, sp, Color(1.0, 0.8, 0.3, 0.5), 2.0, true)
+	draw_circle(sp, r * 0.22, Color(1.0, 0.8, 0.3, 0.9))
 
 
 func _draw_overlays(W: float, H: float) -> void:
@@ -420,6 +426,8 @@ func _draw_texts(W: float, H: float) -> void:
 	if _msg_t > 0.0:
 		var a := clampf(_msg_t * 2.0, 0.0, 1.0)
 		_shadow_text(Vector2(0, H * 0.4), _msg, W, int(H * 0.04), Color(_msg_col, a))
+	if not tilt_ok:
+		_shadow_text(Vector2(0, H * 0.14), "NO TILT SENSOR DATA", W, int(H * 0.035), Color(1, 0.8, 0.3))
 	if integrity < 30.0 and integrity > 0.0 and fmod(_t, 0.8) < 0.5:
 		_shadow_text(Vector2(0, H * 0.71), "GLASS CRITICAL", W, int(H * 0.035), Color(1, 0.25, 0.2))
 

@@ -60,6 +60,7 @@ var _level_len := 0.0
 var _finish_announced := false
 var _fork_announced: VesselSegment = null
 var _seed := 0
+var _steer := Vector2.ZERO
 var bot := false   # debug autopilot, enabled with the --bot user argument
 var god := false   # debug invulnerability, --god
 
@@ -236,6 +237,7 @@ func _process(delta: float) -> void:
 		State.COUNTDOWN:
 			_countdown -= delta
 			hud.countdown = _countdown
+			_steer = _read_steer()
 			if _countdown <= 0.0:
 				_calibrate()
 				state = State.PLAYING
@@ -273,6 +275,7 @@ func _update_beat() -> void:
 
 func _fly(delta: float, autopilot: bool) -> void:
 	var steer := _autopilot() if (autopilot or bot) else _read_steer()
+	_steer = steer
 	lat_vel = lat_vel.lerp(steer * MAX_LATERAL, clampf(delta * 6.0, 0.0, 1.0))
 	offset += lat_vel * delta
 	_fork_assist(delta, autopilot)
@@ -764,6 +767,8 @@ func _push_hud() -> void:
 	if not hud.visible:
 		return
 	hud.integrity = integrity
+	hud.steer = _steer
+	hud.tilt_ok = _has_tilt or not OS.has_feature("mobile")
 	hud.laser_level = laser_level
 	hud.score = score()
 	hud.distance = route_dist

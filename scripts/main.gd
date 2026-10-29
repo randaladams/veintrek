@@ -79,6 +79,8 @@ func _debug_args() -> void:
 			ui.show_screen(a.get_slice("=", 1))
 		elif a == "--fake-result":
 			ui.show_result({"mode": "campaign", "level": 1, "victory": true, "score": 4210, "distance": 1600, "kills": 37, "new_high": false})
+		elif a == "--selftest":
+			_selftest()
 		elif a == "--god":
 			game.god = true
 		elif a.begins_with("--timescale="):
@@ -107,3 +109,40 @@ func _take_shots(dir: String, every: float, count: int) -> void:
 			img.save_png("%s/shot_%02d.png" % [dir, i])
 		print("[shot] %d integrity=%.0f dist=%.0f score=%d state=%d nodes=%d segs=%d pos=%s fps=%d" % [i, game.integrity, game.route_dist, game.score(), game.state, Performance.get_monitor(Performance.OBJECT_NODE_COUNT), game.world.get_child_count(), game.player_pos.round(), Engine.get_frames_per_second()])
 	get_tree().quit()
+
+
+## Injects real input events (no bot, no auto-fire) and checks the game responds.
+func _selftest() -> void:
+	var ok := true
+	for key in ["input_devices/sensors/enable_accelerometer", "input_devices/sensors/enable_gravity"]:
+		var on := bool(ProjectSettings.get_setting(key, false))
+		print("[selftest] %s = %s" % [key, on])
+		ok = ok and on
+	start_endless()
+	while not game.is_playing():   # wait out the countdown
+		await get_tree().process_frame
+	print("[selftest] run started, state=%d" % game.state)
+	var t := InputEventScreenTouch.new()
+	t.index = 0
+	t.position = Vector2(400, 300)
+	t.pressed = true
+	Input.parse_input_event(t)
+	await get_tree().create_timer(0.6).timeout
+	var lasers := get_tree().get_nodes_in_group("laser").size()
+	print("[selftest] lasers while touching: %d" % lasers)
+	ok = ok and lasers > 0
+	t = t.duplicate()
+	t.pressed = false
+	Input.parse_input_event(t)
+	await get_tree().create_timer(0.6).timeout
+	var p := InputEventScreenTouch.new()
+	p.index = 1
+	p.position = game.hud.pause_rect().get_center()
+	p.pressed = true
+	Input.parse_input_event(p)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	print("[selftest] paused after tapping pause button: %s" % get_tree().paused)
+	ok = ok and get_tree().paused
+	print("[selftest] RESULT: %s" % ("PASS" if ok else "FAIL"))
+	get_tree().quit(0 if ok else 1)

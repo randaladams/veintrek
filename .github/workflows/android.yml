@@ -90,6 +90,13 @@ jobs:
       - name: Import project
         run: godot --headless --import 2>&1 | tail -20
 
+      - name: Input self-test (touch fires lasers, pause works, sensors enabled)
+        run: |
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null
+          xvfb-run -a -s "-screen 0 1280x720x24" timeout 180 \
+            godot --rendering-driver opengl3 --resolution 1280x720 -- --selftest 2>&1 | tee selftest.log | grep selftest
+          grep -q "RESULT: PASS" selftest.log
+
       - name: Export APK
         run: |
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/veintrek-debug.keystore"

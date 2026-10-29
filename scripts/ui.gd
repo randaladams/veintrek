@@ -19,12 +19,15 @@ func _ready() -> void:
 	layer = 10
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_root = Control.new()
+	# The menu layer stays in the tree during a run; never let it swallow game touches.
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.theme = _make_theme()
 	add_child(_root)
 	_backdrop = ColorRect.new()
 	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_backdrop.color = Color(0.04, 0.0, 0.01, 0.5)
+	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_backdrop)
 	_build_main()
 	_build_levels()
@@ -79,6 +82,7 @@ func on_back() -> void:
 func _screen(id: String) -> VBoxContainer:
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(center)
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -91,6 +95,7 @@ func _screen(id: String) -> VBoxContainer:
 func _panel_screen(id: String, width: float) -> VBoxContainer:
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(center)
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(width, 0)
