@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="tunnel" cx="50%" cy="50%" r="55%">
+      <stop offset="0" stop-color="#1a0003"/>
+      <stop offset="0.35" stop-color="#5c0610"/>
+      <stop offset="0.75" stop-color="#b3121f"/>
+      <stop offset="1" stop-color="#e3352c"/>
+    </radialGradient>
+    <radialGradient id="cell" cx="50%" cy="45%" r="60%">
+      <stop offset="0" stop-color="#7a0a12"/>
+      <stop offset="0.55" stop-color="#d22a2a"/>
+      <stop offset="1" stop-color="#ff6a55"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#120002"/>
+  <circle cx="128" cy="128" r="112" fill="url(#tunnel)"/>
+  <circle cx="128" cy="128" r="80" fill="none" stroke="#3a0207" stroke-width="6" opacity="0.6"/>
+  <circle cx="128" cy="128" r="48" fill="none" stroke="#2a0105" stroke-width="5" opacity="0.6"/>
+  <ellipse cx="170" cy="92" rx="26" ry="17" fill="url(#cell)" transform="rotate(-25 170 92)"/>
+  <ellipse cx="170" cy="92" rx="10" ry="6" fill="#8d0f17" transform="rotate(-25 170 92)"/>
+  <ellipse cx="84" cy="160" rx="18" ry="12" fill="url(#cell)" transform="rotate(30 84 160)"/>
+  <ellipse cx="84" cy="160" rx="7" ry="4" fill="#8d0f17" transform="rotate(30 84 160)"/>
+  <!-- cockpit struts -->
+  <path d="M16 236 L92 150 L164 150 L240 236" fill="none" stroke="#2b2a2e" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M92 150 L72 40 M164 150 L184 40" stroke="#2b2a2e" stroke-width="12" stroke-linecap="round"/>
+  <path d="M92 150 L164 150" stroke="#4a484e" stroke-width="5"/>
+  <circle cx="128" cy="118" r="9" fill="none" stroke="#6ff3ff" stroke-width="3"/>
+  <path d="M128 100 v8 M128 128 v8 M110 118 h8 M138 118 h8" stroke="#6ff3ff" stroke-width="3"/>
+</svg>

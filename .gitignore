@@ -1,0 +1,8 @@
+# Godot
+.godot/
+/build/
+*.tmp
+
+# Signing material never goes in the repo
+*.keystore
+*.jks
